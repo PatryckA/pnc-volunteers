@@ -118,9 +118,9 @@ For a big event (say 80 volunteers) reminders may arrive a few hours late. To re
 
 **Bring-a-plate events (e.g. staff appreciation lunch):** under **Things to bring**, click **+ Add item** for each category (Main dish, Dessert, Drinks) and set how many are needed. Set the drop-off date, time and place once for the whole event. Parents tick an item, type what they'll bring (required) and tick any dietary info. Everyone can see what's already coming, so you don't get five lasagnes. Add a **Donation link** (e.g. your Square link) to show a "Donate instead" button.
 
-**Re-use last year's event:** open it, click **Duplicate**, choose the new date. All slots move together and the copy starts as a draft.
+**Re-use last year's event:** open it, click **Duplicate event**, choose the new date. All slots move together and the copy starts as a draft.
 
-**See who's coming:** the **Volunteers** tab shows each slot with names, mobiles and emails. **Export CSV** opens in Excel.
+**See who's coming:** the **Volunteers** tab shows each slot with names, mobiles and emails.
 
 **Sign-in sheet:** **Print sign-in sheet** opens a printable A4 page with the logo and event name, one row per volunteer (sorted by surname) showing their time slots or what they are bringing, a blank sign-in column, and a few spare rows for walk-ins.
 
@@ -133,9 +133,9 @@ For a big event (say 80 volunteers) reminders may arrive a few hours late. To re
 ## Privacy
 
 - Other volunteers only see first name and last initial (e.g. "Sarah M.").
-- Email and mobile are visible only to admins (admin page and CSV).
+- Email and mobile are visible only to admins.
 - The private cancel link is unique to each sign-up and is never shown publicly.
-- Sent-email records are deleted after 60 days. Consider deleting old events at the end of each year (export the CSV first if you need a record).
+- Sent-email records are deleted after 60 days. Consider deleting old events at the end of each year (print the sign-in sheet first if you need a record).
 
 ## Costs
 

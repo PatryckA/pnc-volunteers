@@ -131,8 +131,7 @@
       ${saved ? `<div class="toolbar" style="margin-top:12px">
         <button class="btn secondary small" id="copylink">Copy volunteer link</button>
         <a class="btn secondary small" href="event.html?id=${ev.id}" target="_blank" rel="noopener">Preview</a>
-        <button class="btn secondary small" id="dup">Duplicate</button>
-        <button class="btn secondary small" id="csv">Export CSV</button>
+        <button class="btn secondary small" id="dup">Duplicate event</button>
         <button class="btn secondary small" id="print">Print sign-in sheet</button>
         <button class="btn secondary small" id="mail">Email volunteers</button>
         <span class="spacer"></span>
@@ -153,7 +152,6 @@
     if (saved) {
       $('#copylink').onclick = () => copyLink(ev.id);
       $('#dup').onclick = () => duplicateModal(ev);
-      $('#csv').onclick = () => exportCsv(ev);
       $('#print').onclick = () => printSignIn(ev);
       $('#mail').onclick = () => emailModal(ev);
       $('#del').onclick = () => deleteModal(ev);
@@ -329,7 +327,7 @@
   function renderVolunteers() {
     const ev = current;
     $('#tab-body').innerHTML = `
-      <div class="toolbar"><span class="muted small">Contact details are only visible here and in the CSV export.</span><span class="spacer"></span>
+      <div class="toolbar"><span class="muted small">Contact details are only visible to admins.</span><span class="spacer"></span>
         <button class="btn small" id="addvol">+ Add volunteer</button></div>
       ${ev.slots.map(s => `
         <h2 style="font-size:17px">${slotLabel(s)}
@@ -473,7 +471,7 @@
     modal(`
       <h2>Delete "${esc(ev.title)}"?</h2>
       <p>This permanently removes the event, its ${ev.slots.length} slot(s)${n ? ` and <strong>${n} volunteer sign-up(s)</strong>` : ''}. Volunteers are not emailed.</p>
-      ${n ? '<p class="small muted">Tip: export the CSV first if you want a record.</p>' : ''}
+      ${n ? '<p class="small muted">Tip: print the sign-in sheet first if you want a record.</p>' : ''}
       <div class="actions"><button class="btn secondary" data-close>Keep it</button><button class="btn danger confirm" id="x-go">Delete</button></div>`,
     (m, close) => {
       $('#x-go', m).onclick = async () => {
@@ -536,18 +534,6 @@
     const w = window.open('', '_blank');
     if (!w) { toast('Please allow pop-ups for this site to print.', 'bad'); return; }
     w.document.open(); w.document.write(html); w.document.close();
-  }
-
-  async function exportCsv(ev) {
-    try {
-      const res = await api(`/api/admin/events/${ev.id}/export`, { token, raw: true });
-      const blob = await res.blob();
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `${ev.title.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-') || 'event'}-volunteers.csv`;
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-    } catch (err) { toast(err.message, 'bad'); }
   }
 
   function copyLink(id) {
