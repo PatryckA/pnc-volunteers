@@ -36,7 +36,7 @@ Create a free account at dash.cloudflare.com if you don't have one.
 **Database**
 
 1. Go to **Storage & databases > D1 SQL database > Create**. Name it `pnc-volunteers`.
-2. Open the database, go to the **Console** tab, paste the entire contents of `worker/schema.sql`, and run it.
+2. Open the database, go to the **Console** tab, paste the entire contents of `worker/schema-oneline.sql` (the console box only takes one line), and click **Execute**. Check the database's **Overview** shows 5 tables.
 
 **Worker (the API)**
 
