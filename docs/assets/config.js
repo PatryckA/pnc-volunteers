@@ -12,8 +12,8 @@ window.PNC_CONFIG = {
   tagline: 'Thank you for helping our school community. Pick an event below to volunteer.',
 
   // Main colour (any CSS colour)
-  accent: '##339294',
+  accent: '#339294',
 
   // Optional logo: put the image in the assets folder, e.g. 'assets/logo.png'. Leave '' for none.
-  logo: 'P&C Logo.jpg',
+  logo: 'assets/logo.jpg',
 };
