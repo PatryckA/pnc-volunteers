@@ -1,0 +1,3 @@
+-- Run once on an existing database (created before items to bring and donations were added).
+-- New installs do not need this: schema.sql already includes these columns.
+ALTER TABLE events ADD COLUMN dropoff_date TEXT NOT NULL DEFAULT ''; ALTER TABLE events ADD COLUMN dropoff_time TEXT NOT NULL DEFAULT ''; ALTER TABLE events ADD COLUMN dropoff_note TEXT NOT NULL DEFAULT ''; ALTER TABLE slots ADD COLUMN kind TEXT NOT NULL DEFAULT 'shift'; ALTER TABLE signups ADD COLUMN item_desc TEXT NOT NULL DEFAULT ''; ALTER TABLE signups ADD COLUMN dietary TEXT NOT NULL DEFAULT ''; ALTER TABLE events ADD COLUMN donation_url TEXT NOT NULL DEFAULT ''; ALTER TABLE events ADD COLUMN donation_text TEXT NOT NULL DEFAULT '';

@@ -116,6 +116,8 @@ For a big event (say 80 volunteers) reminders may arrive a few hours late. To re
 
 **Create an event:** Admin > **+ New event**. Fill in the name, location and description. Add slots one at a time (**+ Add slot** continues straight after the last one), or use **+ Add a run of shifts** for back-to-back shifts like "BBQ 9am to 1pm in 1 hour shifts". Tick **Live** and **Save**. Then **Copy volunteer link** and share it.
 
+**Bring-a-plate events (e.g. staff appreciation lunch):** under **Things to bring**, click **+ Add item** for each category (Main dish, Dessert, Drinks) and set how many are needed. Set the drop-off date, time and place once for the whole event. Parents tick an item, type what they'll bring (required) and tick any dietary info. Everyone can see what's already coming, so you don't get five lasagnes. Add a **Donation link** (e.g. your Square link) to show a "Donate instead" button.
+
 **Re-use last year's event:** open it, click **Duplicate**, choose the new date. All slots move together and the copy starts as a draft.
 
 **See who's coming:** the **Volunteers** tab shows each slot with names, mobiles and emails. **Export CSV** opens in Excel.
@@ -146,3 +148,4 @@ Everything runs on free tiers: GitHub Pages, Cloudflare Workers (100,000 request
 | Reminder timing | `REMINDER_HOURS` in Cloudflare |
 | Sending address | `MS_SENDER` in Cloudflare |
 | Code updates | Paste the new `worker.js` into the Cloudflare editor; upload new `docs` files in GitHub |
+| Database updates | When an update includes a `migration-*.sql` file, paste its last line into the D1 console once, before deploying the new `worker.js` |

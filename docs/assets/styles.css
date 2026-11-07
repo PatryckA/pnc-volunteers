@@ -78,7 +78,7 @@ h2 { font-size: 19px; margin: 28px 0 10px; }
 /* Forms */
 label { display: block; font-weight: 600; font-size: 15px; margin: 14px 0 6px; }
 label .opt { font-weight: 400; color: var(--muted); }
-input[type=text], input[type=email], input[type=tel], input[type=password], input[type=date], input[type=time], input[type=number], textarea, select {
+input[type=text], input[type=email], input[type=url], input[type=tel], input[type=password], input[type=date], input[type=time], input[type=number], textarea, select {
   width: 100%; font: inherit; font-size: 16px; padding: 12px 14px; border: 1px solid #c8d1da; border-radius: 10px; background: #fff; color: var(--text);
 }
 textarea { min-height: 90px; resize: vertical; }
@@ -165,3 +165,19 @@ table.list tr.click:hover td { background: #f7fafc; }
 }
 
 .wide .actionbar .inner { max-width: 1100px; }
+
+/* Items to bring */
+.bringing { list-style: none; padding: 0; margin: 8px 0 0; font-size: 15px; }
+.bringing li { padding: 3px 0; }
+.diet { display: inline-block; font-size: 12px; background: #e7f4ec; color: var(--ok); border-radius: 99px; padding: 0 8px; margin-left: 4px; }
+.item-block { background: #f4f8fb; border-radius: 12px; padding: 4px 14px 12px; margin-bottom: 8px; }
+.item-block > label { margin-top: 10px; }
+.diet-choices { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+label.chip { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-weight: 500; font-size: 14px; background: #fff; border: 1px solid #c8d1da; border-radius: 99px; padding: 6px 12px; cursor: pointer; }
+label.chip input { width: 16px; height: 16px; margin: 0; }
+label.chip:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, #fff); }
+.slot-edit.item { border-left: 4px solid var(--accent); }
+.slot-edit .grid.item-grid { grid-template-columns: 3fr 1fr; }
+.kind-tag { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--accent); margin-bottom: 6px; }
+.card.donate { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 14px; background: #fffaf0; border-color: #f1e3c4; }
+.card.donate .btn { flex: 0 0 auto; }

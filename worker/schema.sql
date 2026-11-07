@@ -9,12 +9,18 @@ CREATE TABLE IF NOT EXISTS events (
   contact_name TEXT NOT NULL DEFAULT '',
   contact_email TEXT NOT NULL DEFAULT '',
   published    INTEGER NOT NULL DEFAULT 0,   -- 0 = draft (hidden), 1 = visible to volunteers
+  dropoff_date TEXT NOT NULL DEFAULT '',     -- for "items to bring": YYYY-MM-DD
+  dropoff_time TEXT NOT NULL DEFAULT '',     -- HH:MM
+  dropoff_note TEXT NOT NULL DEFAULT '',     -- e.g. "Staffroom"
+  donation_url TEXT NOT NULL DEFAULT '',     -- optional "donate instead" link, e.g. Square
+  donation_text TEXT NOT NULL DEFAULT '',
   created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS slots (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   event_id     INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  kind         TEXT NOT NULL DEFAULT 'shift', -- 'shift' (time slot) or 'item' (something to bring)
   title        TEXT NOT NULL,                 -- e.g. "BBQ cooking"
   details      TEXT NOT NULL DEFAULT '',      -- what the task involves
   date         TEXT NOT NULL,                 -- YYYY-MM-DD (Sydney local)
@@ -35,6 +41,8 @@ CREATE TABLE IF NOT EXISTS signups (
   email         TEXT NOT NULL,
   mobile        TEXT NOT NULL,
   comments      TEXT NOT NULL DEFAULT '',
+  item_desc     TEXT NOT NULL DEFAULT '',      -- for items: what they are bringing
+  dietary       TEXT NOT NULL DEFAULT '',      -- for items: codes veg,vegan,gf,nf,df
   manage_token  TEXT NOT NULL,                -- private link token, shared by one submission
   reminder_sent INTEGER NOT NULL DEFAULT 0,
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))

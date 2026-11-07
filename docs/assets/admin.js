@@ -175,6 +175,10 @@
           <div><label for="f-cn">Contact name <span class="opt">(optional)</span></label><input id="f-cn" data-k="contact_name" type="text" value="${esc(ev.contact_name)}"></div>
           <div><label for="f-ce">Contact email <span class="opt">(replies go here)</span></label><input id="f-ce" data-k="contact_email" type="email" value="${esc(ev.contact_email)}"></div>
         </div>
+        <label for="f-du">Donation link <span class="opt">(optional: shows a "Donate instead" button, e.g. a Square link)</span></label>
+        <input id="f-du" data-k="donation_url" type="url" value="${esc(ev.donation_url || '')}" placeholder="https://square.link/...">
+        <label for="f-dx">Donation message <span class="opt">(optional)</span></label>
+        <input id="f-dx" data-k="donation_text" type="text" value="${esc(ev.donation_text || '')}" placeholder="Can't bring something? You're welcome to donate instead.">
       </form>
       <div class="toolbar" style="margin-top:22px">
         <h2 style="margin:0">Time slots</h2><span class="spacer"></span>
@@ -183,14 +187,29 @@
       </div>
       <p class="small muted">Each slot is one task at one time. Volunteers take the whole slot.</p>
       <div id="slots" class="stack"></div>
+      <div class="toolbar" style="margin-top:26px">
+        <h2 style="margin:0">Things to bring</h2><span class="spacer"></span>
+        <button class="btn secondary small" id="additem">+ Add item</button>
+      </div>
+      <p class="small muted">For bring-a-plate events, e.g. "Main dish" needing 6 people. Parents say what they'll bring and tick any dietary info.</p>
+      <div id="dropoff" class="card hidden" style="margin-bottom:12px">
+        <div class="row">
+          <div><label for="f-dd" style="margin-top:0">Drop-off date</label><input id="f-dd" data-k="dropoff_date" type="date" value="${esc(ev.dropoff_date || '')}"></div>
+          <div><label for="f-dt" style="margin-top:0">Drop off by</label><input id="f-dt" data-k="dropoff_time" type="time" step="300" value="${esc(ev.dropoff_time || '')}"></div>
+        </div>
+        <label for="f-dn">Where <span class="opt">(optional)</span></label>
+        <input id="f-dn" data-k="dropoff_note" type="text" value="${esc(ev.dropoff_note || '')}" placeholder="e.g. Staffroom kitchen">
+      </div>
+      <div id="items" class="stack"></div>
       <div id="save-err"></div>
       <div class="actionbar show"><div class="inner">
         <span class="small muted" id="dirty-note">${ev.id ? 'All changes saved' : 'Not saved yet'}</span>
         <button class="btn" id="save">${ev.id ? 'Save changes' : 'Save event'}</button>
       </div></div>`;
-    $$('#evform [data-k]').forEach(inp => inp.addEventListener('input', () => { ev[inp.dataset.k] = inp.value; markDirty(); }));
+    $$('#evform [data-k], #dropoff [data-k]').forEach(inp => inp.addEventListener('input', () => { ev[inp.dataset.k] = inp.value; markDirty(); }));
     $('#f-pub').addEventListener('change', e => { ev.published = e.target.checked ? 1 : 0; markDirty(); });
     $('#addslot').onclick = addSlot;
+    $('#additem').onclick = addItem;
     $('#addrun').onclick = runModal;
     $('#save').onclick = save;
     renderSlots();
@@ -199,8 +218,18 @@
   function markDirty() { dirty = true; const n = $('#dirty-note'); if (n) n.textContent = 'Unsaved changes'; }
 
   function renderSlots() {
-    const box = $('#slots');
-    box.innerHTML = current.slots.map((s, i) => {
+    const entries = current.slots.map((s, i) => ({ s, i }));
+    const shifts = entries.filter(e => e.s.kind !== 'item');
+    const items = entries.filter(e => e.s.kind === 'item');
+    const foot = (s, n) => `
+        <div class="foot">
+          <span class="muted">${n ? `${n} signed up` : ''}</span>
+          <span>
+            <button class="btn link" data-act="copy">Copy</button>
+            <button class="btn link" data-act="remove" ${n ? 'disabled title="Remove the volunteers first"' : ''} style="color:var(--bad)">Remove</button>
+          </span>
+        </div>`;
+    $('#slots').innerHTML = shifts.map(({ s, i }) => {
       const n = s.signups?.length || 0;
       return `
       <div class="slot-edit" data-i="${i}">
@@ -212,15 +241,22 @@
           <div><label>People</label><input type="number" data-k="capacity" min="${Math.max(1, n)}" max="500" value="${esc(s.capacity)}"></div>
         </div>
         <textarea data-k="details" placeholder="Task details (optional): what's involved, what to bring, where to go">${esc(s.details)}</textarea>
-        <div class="foot">
-          <span class="muted">${n ? `${n} signed up` : ''}</span>
-          <span>
-            <button class="btn link" data-act="copy">Copy</button>
-            <button class="btn link" data-act="remove" ${n ? 'disabled title="Remove the volunteers first"' : ''} style="color:var(--bad)">Remove</button>
-          </span>
-        </div>
+        ${foot(s, n)}
       </div>`;
-    }).join('') || '<p class="muted">No slots yet.</p>';
+    }).join('') || '<p class="muted small">No time slots.</p>';
+    $('#items').innerHTML = items.map(({ s, i }) => {
+      const n = s.signups?.length || 0;
+      return `
+      <div class="slot-edit item" data-i="${i}">
+        <div class="grid item-grid">
+          <div><label>Item</label><input type="text" data-k="title" value="${esc(s.title)}" placeholder="e.g. Main dish"></div>
+          <div><label>How many</label><input type="number" data-k="capacity" min="${Math.max(1, n)}" max="500" value="${esc(s.capacity)}"></div>
+        </div>
+        <textarea data-k="details" placeholder="Details (optional), e.g. serves 8, please bring in a disposable dish">${esc(s.details)}</textarea>
+        ${foot(s, n)}
+      </div>`;
+    }).join('');
+    $('#dropoff').classList.toggle('hidden', !items.length);
     $$('.slot-edit').forEach(el => {
       const s = current.slots[+el.dataset.i];
       $$('[data-k]', el).forEach(inp => inp.addEventListener('input', () => { s[inp.dataset.k] = inp.value; markDirty(); }));
@@ -232,8 +268,23 @@
     });
   }
 
+  function dropBlankStarter() {
+    // a brand-new event starts with one empty time slot; drop it if unused
+    const only = current.slots.length === 1 && current.slots[0];
+    if (only && only.kind !== 'item' && !only.id && !only.title && !only.date) current.slots = [];
+  }
+
+  function addItem() {
+    dropBlankStarter();
+    current.slots.push({ kind: 'item', title: '', details: '', capacity: 4, signups: [] });
+    markDirty(); renderSlots();
+    const els = $$('#items .slot-edit'); const last = els[els.length - 1];
+    last.scrollIntoView({ behavior: 'smooth', block: 'center' }); $('input', last).focus();
+  }
+
   function addSlot() {
-    const last = current.slots[current.slots.length - 1];
+    const shiftsOnly = current.slots.filter(s => s.kind !== 'item');
+    const last = shiftsOnly[shiftsOnly.length - 1];
     let next = { title: '', details: '', date: '', start_time: '09:00', end_time: '10:00', capacity: 2, signups: [] };
     if (last) {
       // continue straight after the previous slot, same length
@@ -243,7 +294,7 @@
     }
     current.slots.push(next);
     markDirty(); renderSlots();
-    const els = $$('.slot-edit'); els[els.length - 1].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const els = $$('#slots .slot-edit'); els[els.length - 1].scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
   const toMin = t => { const [h, m] = (t || '0:0').split(':').map(Number); return h * 60 + m; };
   const fromMin = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
@@ -268,17 +319,23 @@
   }
 
   /* ---------------- Volunteers tab ---------------- */
+  const DIET = { veg: 'Vegetarian', vegan: 'Vegan', gf: 'Gluten free', nf: 'Nut free', df: 'Dairy free' };
+  const dietLabels = codes => String(codes || '').split(',').filter(c => DIET[c]).map(c => DIET[c]);
+  const slotLabel = s => s.kind === 'item'
+    ? `Bring: ${esc(s.title)}`
+    : `${esc(fmtDateShort(s.date))}, ${fmtTime(s.start_time)} to ${fmtTime(s.end_time)} · ${esc(s.title)}`;
   function renderVolunteers() {
     const ev = current;
     $('#tab-body').innerHTML = `
       <div class="toolbar"><span class="muted small">Contact details are only visible here and in the CSV export.</span><span class="spacer"></span>
         <button class="btn small" id="addvol">+ Add volunteer</button></div>
       ${ev.slots.map(s => `
-        <h2 style="font-size:17px">${esc(fmtDateShort(s.date))}, ${fmtTime(s.start_time)} to ${fmtTime(s.end_time)} · ${esc(s.title)}
+        <h2 style="font-size:17px">${slotLabel(s)}
           <span class="badge ${s.signups.length >= s.capacity ? 'full' : ''}" style="margin-left:6px">${s.signups.length}/${s.capacity}</span></h2>
-        ${s.signups.length ? `<table class="list roster"><thead><tr><th>Name</th><th>Mobile</th><th class="hide-sm">Email</th><th class="hide-sm">Comments</th><th></th></tr></thead><tbody>
+        ${s.signups.length ? `<table class="list roster"><thead><tr><th>Name</th>${s.kind === 'item' ? '<th>Bringing</th>' : ''}<th>Mobile</th><th class="hide-sm">Email</th><th class="hide-sm">Comments</th><th></th></tr></thead><tbody>
           ${s.signups.map(g => `<tr>
             <td>${esc(g.first_name)} ${esc(g.last_name)}</td>
+            ${s.kind === 'item' ? `<td><strong>${esc(g.item_desc)}</strong>${dietLabels(g.dietary).map(d => `<span class="diet">${esc(d)}</span>`).join('')}</td>` : ''}
             <td><a href="tel:${esc(g.mobile.replace(/\s/g, ''))}">${esc(g.mobile)}</a></td>
             <td class="hide-sm"><a href="mailto:${esc(g.email)}">${esc(g.email)}</a></td>
             <td class="hide-sm">${esc(g.comments)}</td>
@@ -303,7 +360,8 @@
   }
 
   function runModal() {
-    const last = current.slots[current.slots.length - 1] || {};
+    const shiftsOnly = current.slots.filter(s => s.kind !== 'item');
+    const last = shiftsOnly[shiftsOnly.length - 1] || {};
     modal(`
       <h2>Add a run of shifts</h2>
       <p class="small muted">Creates back-to-back slots, e.g. BBQ from 9am to 1pm in 1 hour shifts.</p>
@@ -323,7 +381,7 @@
         const from = toMin($('#r-from', m).value), to = toMin($('#r-to', m).value), len = +$('#r-len', m).value;
         if (!title || !date || to <= from) { $('#r-err', m).innerHTML = '<div class="error">Please enter a task, a date, and a "To" time after "From".</div>'; return; }
         // drop a blank starter slot if that's all there is
-        if (current.slots.length === 1 && !current.slots[0].title && !current.slots[0].date) current.slots = [];
+        dropBlankStarter();
         for (let t = from; t < to; t += len) {
           current.slots.push({ title, details: $('#r-details', m).value, date, start_time: fromMin(t), end_time: fromMin(Math.min(t + len, to)), capacity: +$('#r-cap', m).value || 1, signups: [] });
         }
@@ -336,7 +394,11 @@
     modal(`
       <h2>Add a volunteer</h2>
       <label>Slot</label>
-      <select id="v-slot">${current.slots.map(s => `<option value="${s.id}">${esc(fmtDateShort(s.date))} ${fmtTime(s.start_time)}, ${esc(s.title)} (${s.signups.length}/${s.capacity})</option>`).join('')}</select>
+      <select id="v-slot">${current.slots.map(s => `<option value="${s.id}" data-kind="${s.kind || 'shift'}">${s.kind === 'item' ? 'Bring: ' + esc(s.title) : `${esc(fmtDateShort(s.date))} ${fmtTime(s.start_time)}, ${esc(s.title)}`} (${s.signups.length}/${s.capacity})</option>`).join('')}</select>
+      <div id="v-item" class="hidden">
+        <label>Bringing</label><input type="text" id="v-desc" placeholder="e.g. Chicken curry">
+        <div class="diet-choices">${Object.entries(DIET).map(([c, l]) => `<label class="chip"><input type="checkbox" value="${c}"> ${l}</label>`).join('')}</div>
+      </div>
       <div class="row"><div><label>First name</label><input type="text" id="v-first"></div><div><label>Last name</label><input type="text" id="v-last"></div></div>
       <label>Email</label><input type="email" id="v-email">
       <label>Mobile</label><input type="tel" id="v-mobile" placeholder="0412 345 678">
@@ -346,11 +408,14 @@
       <div id="v-err"></div>
       <div class="actions"><button class="btn secondary" data-close>Cancel</button><button class="btn" id="v-go">Add volunteer</button></div>`,
     (m, close) => {
+      const syncKind = () => $('#v-item', m).classList.toggle('hidden', $('#v-slot', m).selectedOptions[0]?.dataset.kind !== 'item');
+      $('#v-slot', m).onchange = syncKind; syncKind();
       $('#v-go', m).onclick = async () => {
         try {
           const { event } = await call('/api/admin/signups', { method: 'POST', body: {
             slot_id: +$('#v-slot', m).value, first_name: $('#v-first', m).value, last_name: $('#v-last', m).value,
-            email: $('#v-email', m).value, mobile: $('#v-mobile', m).value, comments: $('#v-comments', m).value, send_email: $('#v-send', m).checked } });
+            email: $('#v-email', m).value, mobile: $('#v-mobile', m).value, comments: $('#v-comments', m).value, send_email: $('#v-send', m).checked,
+            item_desc: $('#v-desc', m).value, dietary: $$('#v-item input:checked', m).map(c => c.value) } });
           close(); toast('Volunteer added.'); showEditor(event);
         } catch (err) { $('#v-err', m).innerHTML = `<div class="error">${esc(err.message)}</div>`; }
       };
@@ -362,7 +427,7 @@
       <h2>Duplicate event</h2>
       <p class="small muted">Copies the details and all slots (not the volunteers). The copy starts as a draft.</p>
       <label>New event name</label><input type="text" id="d-title" value="${esc(ev.title)}">
-      <label>Date of the first slot</label><input type="date" id="d-date" value="${esc(ev.slots[0]?.date || '')}">
+      <label>Date of the first slot (or drop-off)</label><input type="date" id="d-date" value="${esc(ev.slots[0]?.date || '')}">
       <p class="small muted">All slots move by the same number of days, so multi-day events stay in order.</p>
       <div id="d-err"></div>
       <div class="actions"><button class="btn secondary" data-close>Cancel</button><button class="btn" id="d-go">Duplicate</button></div>`,
@@ -384,7 +449,7 @@
       <h2>Email volunteers</h2>
       <label>Send to</label>
       <select id="m-to"><option value="">Everyone signed up (${people.size} ${people.size === 1 ? 'person' : 'people'})</option>
-        ${ev.slots.filter(s => s.signups.length).map(s => `<option value="${s.id}">Only: ${esc(fmtDateShort(s.date))} ${fmtTime(s.start_time)}, ${esc(s.title)} (${s.signups.length})</option>`).join('')}</select>
+        ${ev.slots.filter(s => s.signups.length).map(s => `<option value="${s.id}">Only: ${s.kind === 'item' ? 'Bring: ' + esc(s.title) : `${esc(fmtDateShort(s.date))} ${fmtTime(s.start_time)}, ${esc(s.title)}`} (${s.signups.length})</option>`).join('')}</select>
       <label>Subject</label><input type="text" id="m-subj" value="${esc(ev.title)}: update">
       <label>Message</label><textarea id="m-msg" style="min-height:160px" placeholder="Each email starts with 'Hi [first name],' automatically."></textarea>
       <p class="small muted">${status.remaining_24h} emails left today (limit ${status.daily_limit}). Extras wait in the queue and send automatically within the next day.${ev.contact_email ? ` Replies go to ${esc(ev.contact_email)}.` : ''}</p>

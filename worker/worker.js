@@ -101,26 +101,32 @@ async function listPublicEvents(env) {
 
 async function getPublicEvent(env, id) {
   const ev = await env.DB.prepare(
-    `SELECT id, title, description, location, contact_name, contact_email FROM events WHERE id = ? AND published = 1`
+    `SELECT id, title, description, location, contact_name, contact_email, dropoff_date, dropoff_time, dropoff_note,
+            donation_url, donation_text
+     FROM events WHERE id = ? AND published = 1`
   ).bind(id).first();
   if (!ev) throw httpError(404, 'This event could not be found. It may have been removed.');
   const { results: slots } = await env.DB.prepare(
-    `SELECT id, title, details, date, start_time, end_time, capacity, start_utc FROM slots
+    `SELECT id, kind, title, details, date, start_time, end_time, capacity, start_utc FROM slots
      WHERE event_id = ? ORDER BY date, start_time, sort_order, id`
   ).bind(id).all();
   const { results: names } = await env.DB.prepare(
-    `SELECT g.slot_id, g.first_name, g.last_name FROM signups g JOIN slots s ON s.id = g.slot_id
+    `SELECT g.slot_id, g.first_name, g.last_name, g.item_desc, g.dietary FROM signups g JOIN slots s ON s.id = g.slot_id
      WHERE s.event_id = ? ORDER BY g.id`
   ).bind(id).all();
   const now = new Date().toISOString();
   const bySlot = {};
-  for (const n of names) (bySlot[n.slot_id] ||= []).push(displayName(n.first_name, n.last_name));
+  for (const n of names) (bySlot[n.slot_id] ||= []).push(n);
   ev.slots = slots.map(s => {
     const people = bySlot[s.id] || [];
+    const isItem = s.kind === 'item';
     return {
-      id: s.id, title: s.title, details: s.details, date: s.date,
+      id: s.id, kind: isItem ? 'item' : 'shift', title: s.title, details: s.details, date: s.date,
       start_time: s.start_time, end_time: s.end_time, capacity: s.capacity,
-      filled: people.length, names: people, closed: s.start_utc <= now,
+      filled: people.length, names: people.map(p => displayName(p.first_name, p.last_name)),
+      // For items, show what each person is bringing so others can avoid doubling up
+      entries: isItem ? people.map(p => ({ name: displayName(p.first_name, p.last_name), item: p.item_desc, dietary: dietaryList(p.dietary) })) : undefined,
+      closed: s.start_utc <= now,
     };
   });
   return json({ event: ev });
@@ -131,7 +137,8 @@ async function createSignups(request, env, ctx) {
   if (body.website) return json({ ok: true, created: [], problems: [] }); // honeypot: bots fill hidden field
   const person = validatePerson(body);
   const slotIds = [...new Set((body.slot_ids || []).map(Number).filter(Number.isInteger))];
-  if (!slotIds.length) throw httpError(400, 'Please choose at least one time slot.');
+  if (!slotIds.length) throw httpError(400, 'Please choose at least one slot or item.');
+  const itemInfo = body.items && typeof body.items === 'object' ? body.items : {};
   if (slotIds.length > MAX_SLOTS_PER_SIGNUP) throw httpError(400, 'That is a lot of slots! Please choose fewer.');
 
   const token = randomToken();
@@ -145,17 +152,23 @@ async function createSignups(request, env, ctx) {
       `SELECT s.*, e.title AS event_title, e.published FROM slots s JOIN events e ON e.id = s.event_id WHERE s.id = ?`
     ).bind(slotId).first();
     if (!slot || !slot.published) { problems.push({ slot_id: slotId, reason: 'This slot no longer exists.' }); continue; }
-    const label = `${slot.title} (${fmtDate(slot.date)}, ${fmtTime(slot.start_time)})`;
-    if (slot.start_utc <= now.toISOString()) { problems.push({ slot_id: slotId, reason: `${label} has already started.` }); continue; }
+    const isItem = slot.kind === 'item';
+    const label = isItem ? `"${slot.title}"` : `${slot.title} (${fmtDate(slot.date)}, ${fmtTime(slot.start_time)})`;
+    if (slot.start_utc <= now.toISOString()) { problems.push({ slot_id: slotId, reason: isItem ? `${label} is closed.` : `${label} has already started.` }); continue; }
+    let item = { item_desc: '', dietary: '' };
+    if (isItem) {
+      try { item = validateItem(itemInfo[slotId] || itemInfo[String(slotId)], slot.title); }
+      catch (err) { problems.push({ slot_id: slotId, reason: err.message }); continue; }
+    }
     const dup = await env.DB.prepare(`SELECT id FROM signups WHERE slot_id = ? AND lower(email) = lower(?)`).bind(slotId, person.email).first();
     if (dup) { problems.push({ slot_id: slotId, reason: `You are already signed up for ${label}.` }); continue; }
 
     const reminderSent = slot.start_utc <= reminderCutoff ? 1 : 0; // too close for a separate reminder
     const res = await env.DB.prepare(`
-      INSERT INTO signups (slot_id, first_name, last_name, email, mobile, comments, manage_token, reminder_sent)
-      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8
+      INSERT INTO signups (slot_id, first_name, last_name, email, mobile, comments, manage_token, reminder_sent, item_desc, dietary)
+      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10
       WHERE (SELECT COUNT(*) FROM signups WHERE slot_id = ?1) < (SELECT capacity FROM slots WHERE id = ?1)
-    `).bind(slotId, person.first_name, person.last_name, person.email, person.mobile, person.comments, token, reminderSent).run();
+    `).bind(slotId, person.first_name, person.last_name, person.email, person.mobile, person.comments, token, reminderSent, item.item_desc, item.dietary).run();
     if (!res.meta.changes) { problems.push({ slot_id: slotId, reason: `Sorry, ${label} has just filled up.` }); continue; }
     created.push({ slot_id: slotId });
   }
@@ -176,6 +189,8 @@ async function getManage(env, token) {
     signups: rows.map(r => ({
       id: r.id, event_id: r.event_id, event_title: r.event_title, location: r.location,
       title: r.title, details: r.details, date: r.date, start_time: r.start_time, end_time: r.end_time,
+      kind: r.kind === 'item' ? 'item' : 'shift', item_desc: r.item_desc, dietary: dietaryList(r.dietary),
+      dropoff_note: r.dropoff_note,
       can_cancel: r.start_utc > now,
     })),
   });
@@ -274,18 +289,35 @@ async function adminSaveEvent(request, env, id) {
     contact_name: opt(body.contact_name, 100),
     contact_email: opt(body.contact_email, 200),
     published: body.published ? 1 : 0,
+    dropoff_date: opt(body.dropoff_date, 10),
+    dropoff_time: opt(body.dropoff_time, 5),
+    dropoff_note: opt(body.dropoff_note, 200),
+    donation_url: opt(body.donation_url, 500),
+    donation_text: opt(body.donation_text, 300),
   };
+  if (ev.donation_url && !/^https:\/\/[^\s"'<>]+$/i.test(ev.donation_url)) throw httpError(400, 'The donation link must start with https://');
   if (ev.contact_email && !isEmail(ev.contact_email)) throw httpError(400, 'Contact email does not look right.');
   const tz = timezone(env);
+  const hasItems = (body.slots || []).some(s => s.kind === 'item');
+  if (hasItems) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ev.dropoff_date)) throw httpError(400, 'Items to bring need a drop-off date.');
+    if (!/^\d{2}:\d{2}$/.test(ev.dropoff_time)) throw httpError(400, 'Items to bring need a drop-off time.');
+  }
   const slots = (body.slots || []).map((s, i) => {
+    const isItem = s.kind === 'item';
     const slot = {
       id: s.id ? Number(s.id) : null,
-      title: req(s.title, `Slot ${i + 1} task name`, 120),
+      kind: isItem ? 'item' : 'shift',
+      title: req(s.title, isItem ? `Item ${i + 1} name` : `Slot ${i + 1} task name`, 120),
       details: opt(s.details, 2000),
-      date: s.date, start_time: s.start_time, end_time: s.end_time,
+      // Items all share the event's drop-off time, so reminders and closing work the same way as shifts
+      date: isItem ? ev.dropoff_date : s.date,
+      start_time: isItem ? ev.dropoff_time : s.start_time,
+      end_time: isItem ? ev.dropoff_time : s.end_time,
       capacity: Math.max(1, Math.min(500, parseInt(s.capacity, 10) || 1)),
       sort_order: i,
     };
+    if (isItem) { slot.start_utc = localToUtc(slot.date, slot.start_time, tz).toISOString(); return slot; }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(slot.date || '')) throw httpError(400, `Slot ${i + 1} needs a date.`);
     if (!/^\d{2}:\d{2}$/.test(slot.start_time || '') || !/^\d{2}:\d{2}$/.test(slot.end_time || ''))
       throw httpError(400, `Slot ${i + 1} needs a start and end time.`);
@@ -293,20 +325,20 @@ async function adminSaveEvent(request, env, id) {
     slot.start_utc = localToUtc(slot.date, slot.start_time, tz).toISOString();
     return slot;
   });
-  if (!slots.length) throw httpError(400, 'Add at least one time slot.');
+  if (!slots.length) throw httpError(400, 'Add at least one time slot or item.');
 
   const stmts = [];
   if (id === null) {
     const r = await env.DB.prepare(
-      `INSERT INTO events (title, description, location, contact_name, contact_email, published) VALUES (?,?,?,?,?,?)`
-    ).bind(ev.title, ev.description, ev.location, ev.contact_name, ev.contact_email, ev.published).run();
+      `INSERT INTO events (title, description, location, contact_name, contact_email, published, dropoff_date, dropoff_time, dropoff_note, donation_url, donation_text) VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+    ).bind(ev.title, ev.description, ev.location, ev.contact_name, ev.contact_email, ev.published, ev.dropoff_date, ev.dropoff_time, ev.dropoff_note, ev.donation_url, ev.donation_text).run();
     id = r.meta.last_row_id;
   } else {
     const exists = await env.DB.prepare(`SELECT id FROM events WHERE id = ?`).bind(id).first();
     if (!exists) throw httpError(404, 'Event not found.');
     stmts.push(env.DB.prepare(
-      `UPDATE events SET title=?, description=?, location=?, contact_name=?, contact_email=?, published=? WHERE id=?`
-    ).bind(ev.title, ev.description, ev.location, ev.contact_name, ev.contact_email, ev.published, id));
+      `UPDATE events SET title=?, description=?, location=?, contact_name=?, contact_email=?, published=?, dropoff_date=?, dropoff_time=?, dropoff_note=?, donation_url=?, donation_text=? WHERE id=?`
+    ).bind(ev.title, ev.description, ev.location, ev.contact_name, ev.contact_email, ev.published, ev.dropoff_date, ev.dropoff_time, ev.dropoff_note, ev.donation_url, ev.donation_text, id));
 
     // Slots removed by the admin: only allowed when nobody is signed up
     const { results: existing } = await env.DB.prepare(
@@ -329,12 +361,12 @@ async function adminSaveEvent(request, env, id) {
     if (s.id) {
       // If the start time moved later than the reminder window, allow a fresh reminder
       stmts.push(env.DB.prepare(
-        `UPDATE slots SET title=?, details=?, date=?, start_time=?, end_time=?, capacity=?, start_utc=?, sort_order=? WHERE id=? AND event_id=?`
-      ).bind(s.title, s.details, s.date, s.start_time, s.end_time, s.capacity, s.start_utc, s.sort_order, s.id, id));
+        `UPDATE slots SET kind=?, title=?, details=?, date=?, start_time=?, end_time=?, capacity=?, start_utc=?, sort_order=? WHERE id=? AND event_id=?`
+      ).bind(s.kind, s.title, s.details, s.date, s.start_time, s.end_time, s.capacity, s.start_utc, s.sort_order, s.id, id));
     } else {
       stmts.push(env.DB.prepare(
-        `INSERT INTO slots (event_id, title, details, date, start_time, end_time, capacity, start_utc, sort_order) VALUES (?,?,?,?,?,?,?,?,?)`
-      ).bind(id, s.title, s.details, s.date, s.start_time, s.end_time, s.capacity, s.start_utc, s.sort_order));
+        `INSERT INTO slots (event_id, kind, title, details, date, start_time, end_time, capacity, start_utc, sort_order) VALUES (?,?,?,?,?,?,?,?,?,?)`
+      ).bind(id, s.kind, s.title, s.details, s.date, s.start_time, s.end_time, s.capacity, s.start_utc, s.sort_order));
     }
   }
   if (stmts.length) await env.DB.batch(stmts);
@@ -361,16 +393,17 @@ async function adminDuplicate(request, env, id) {
     shiftDays = Math.round((Date.parse(body.new_date + 'T00:00:00Z') - Date.parse(slots[0].date + 'T00:00:00Z')) / 86400e3);
   }
   const title = opt(body.title, 120) || `${src.title} (copy)`;
+  const dropoffDate = src.dropoff_date ? addDays(src.dropoff_date, shiftDays) : '';
   const r = await env.DB.prepare(
-    `INSERT INTO events (title, description, location, contact_name, contact_email, published) VALUES (?,?,?,?,?,0)`
-  ).bind(title, src.description, src.location, src.contact_name, src.contact_email).run();
+    `INSERT INTO events (title, description, location, contact_name, contact_email, published, dropoff_date, dropoff_time, dropoff_note, donation_url, donation_text) VALUES (?,?,?,?,?,0,?,?,?,?,?)`
+  ).bind(title, src.description, src.location, src.contact_name, src.contact_email, dropoffDate, src.dropoff_time || '', src.dropoff_note || '', src.donation_url || '', src.donation_text || '').run();
   const newId = r.meta.last_row_id;
   const tz = timezone(env);
   const stmts = slots.map(s => {
     const date = addDays(s.date, shiftDays);
     return env.DB.prepare(
-      `INSERT INTO slots (event_id, title, details, date, start_time, end_time, capacity, start_utc, sort_order) VALUES (?,?,?,?,?,?,?,?,?)`
-    ).bind(newId, s.title, s.details, date, s.start_time, s.end_time, s.capacity, localToUtc(date, s.start_time, tz).toISOString(), s.sort_order);
+      `INSERT INTO slots (event_id, kind, title, details, date, start_time, end_time, capacity, start_utc, sort_order) VALUES (?,?,?,?,?,?,?,?,?,?)`
+    ).bind(newId, s.kind || 'shift', s.title, s.details, date, s.start_time, s.end_time, s.capacity, localToUtc(date, s.start_time, tz).toISOString(), s.sort_order);
   });
   if (stmts.length) await env.DB.batch(stmts);
   return adminGetEvent(env, newId);
@@ -380,16 +413,20 @@ async function adminExport(env, id) {
   const ev = await env.DB.prepare(`SELECT title FROM events WHERE id = ?`).bind(id).first();
   if (!ev) throw httpError(404, 'Event not found.');
   const { results } = await env.DB.prepare(`
-    SELECT s.date, s.start_time, s.end_time, s.title AS task, s.capacity,
-           g.first_name, g.last_name, g.email, g.mobile, g.comments, g.created_at
+    SELECT s.kind, s.date, s.start_time, s.end_time, s.title AS task, s.capacity,
+           g.first_name, g.last_name, g.email, g.mobile, g.item_desc, g.dietary, g.comments, g.created_at
     FROM slots s LEFT JOIN signups g ON g.slot_id = s.id
     WHERE s.event_id = ? ORDER BY s.date, s.start_time, s.sort_order, s.id, g.id
   `).bind(id).all();
-  const header = ['Date', 'Start', 'End', 'Task', 'Capacity', 'First name', 'Last name', 'Email', 'Mobile', 'Comments', 'Signed up (UTC)'];
-  const lines = [header, ...results.map(r => [
-    r.date, r.start_time, r.end_time, r.task, r.capacity,
-    r.first_name || '(open)', r.last_name || '', r.email || '', r.mobile || '', r.comments || '', r.created_at || '',
-  ])].map(row => row.map(csvCell).join(','));
+  const header = ['Type', 'Date', 'Start', 'End', 'Task or item', 'Needed', 'First name', 'Last name', 'Email', 'Mobile', 'Bringing', 'Dietary', 'Comments', 'Signed up (UTC)'];
+  const lines = [header, ...results.map(r => {
+    const item = r.kind === 'item';
+    return [
+      item ? 'Bring' : 'Shift', r.date, r.start_time, item ? '' : r.end_time, r.task, r.capacity,
+      r.first_name || '(open)', r.last_name || '', r.email || '', r.mobile || '',
+      r.item_desc || '', dietaryList(r.dietary).join(', '), r.comments || '', r.created_at || '',
+    ];
+  })].map(row => row.map(csvCell).join(','));
   const filename = `${ev.title.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-') || 'event'}-volunteers.csv`;
   return new Response('\uFEFF' + lines.join('\r\n'), {
     headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${filename}"` },
@@ -433,12 +470,13 @@ async function adminAddSignup(request, env, ctx) {
   if (!slot) throw httpError(404, 'Slot not found.');
   const dup = await env.DB.prepare(`SELECT id FROM signups WHERE slot_id = ? AND lower(email) = lower(?)`).bind(slotId, person.email).first();
   if (dup) throw httpError(400, 'That email is already signed up for this slot.');
+  const item = slot.kind === 'item' ? validateItem({ item_desc: body.item_desc, dietary: body.dietary }, slot.title) : { item_desc: '', dietary: '' };
   const token = randomToken();
   const reminderCutoff = new Date(Date.now() + reminderHours(env) * 3600e3).toISOString();
   await env.DB.prepare(`
-    INSERT INTO signups (slot_id, first_name, last_name, email, mobile, comments, manage_token, reminder_sent)
-    VALUES (?,?,?,?,?,?,?,?)`).bind(slotId, person.first_name, person.last_name, person.email, person.mobile,
-    person.comments, token, slot.start_utc <= reminderCutoff ? 1 : 0).run();
+    INSERT INTO signups (slot_id, first_name, last_name, email, mobile, comments, manage_token, reminder_sent, item_desc, dietary)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`).bind(slotId, person.first_name, person.last_name, person.email, person.mobile,
+    person.comments, token, slot.start_utc <= reminderCutoff ? 1 : 0, item.item_desc, item.dietary).run();
   if (body.send_email) { await queueConfirmation(env, token); ctx.waitUntil(processQueue(env)); }
   return adminGetEvent(env, slot.event_id);
 }
@@ -456,7 +494,7 @@ async function adminRemoveSignup(env, id) {
 
 async function signupsForToken(env, token) {
   const { results } = await env.DB.prepare(`
-    SELECT g.id, g.first_name, g.email, s.title, s.details, s.date, s.start_time, s.end_time, s.start_utc,
+    SELECT g.id, g.first_name, g.email, g.item_desc, g.dietary, s.kind, s.title, s.details, s.date, s.start_time, s.end_time, s.start_utc, e.dropoff_note,
            e.id AS event_id, e.title AS event_title, e.location, e.contact_name, e.contact_email
     FROM signups g JOIN slots s ON s.id = g.slot_id JOIN events e ON e.id = s.event_id
     WHERE g.manage_token = ? ORDER BY s.date, s.start_time`).bind(token).all();
@@ -484,7 +522,7 @@ async function queueReminders(env) {
   const now = new Date();
   const until = new Date(now.getTime() + reminderHours(env) * 3600e3).toISOString();
   const { results } = await env.DB.prepare(`
-    SELECT g.id, g.first_name, g.email, g.manage_token, s.title, s.details, s.date, s.start_time, s.end_time, s.start_utc,
+    SELECT g.id, g.first_name, g.email, g.manage_token, g.item_desc, g.dietary, s.kind, s.title, s.details, s.date, s.start_time, s.end_time, s.start_utc, e.dropoff_note,
            e.id AS event_id, e.title AS event_title, e.location, e.contact_name, e.contact_email
     FROM signups g JOIN slots s ON s.id = g.slot_id JOIN events e ON e.id = s.event_id
     WHERE g.reminder_sent = 0 AND s.start_utc > ? AND s.start_utc <= ?
@@ -598,7 +636,14 @@ function emailLayout(env, inner) {
 }
 
 function slotTable(rows) {
-  return rows.map(r => `
+  return rows.map(r => r.kind === 'item' ? `
+    <div style="border-left:4px solid #1f5f8b;padding:8px 12px;margin:10px 0;background:#f4f8fb;border-radius:4px">
+      <div style="font-weight:bold">Bringing: ${esc(r.item_desc)} <span style="font-weight:normal;color:#555">(${esc(r.title)})</span></div>
+      ${dietaryList(r.dietary).length ? `<div style="color:#555;font-size:14px">${esc(dietaryList(r.dietary).join(', '))}</div>` : ''}
+      <div>Drop off by ${esc(fmtTime(r.start_time))}, ${esc(fmtDate(r.date))}${r.dropoff_note ? ', ' + esc(r.dropoff_note) : ''}</div>
+      <div style="color:#555">${esc(r.event_title)}${r.location ? ' &middot; ' + esc(r.location) : ''}</div>
+      ${r.details ? `<div style="color:#555;font-size:14px;margin-top:4px">${esc(r.details).replace(/\n/g, '<br>')}</div>` : ''}
+    </div>` : `
     <div style="border-left:4px solid #1f5f8b;padding:8px 12px;margin:10px 0;background:#f4f8fb;border-radius:4px">
       <div style="font-weight:bold">${esc(r.title)}</div>
       <div>${esc(fmtDate(r.date))}, ${esc(fmtTime(r.start_time))} to ${esc(fmtTime(r.end_time))}</div>
@@ -623,9 +668,9 @@ function buildIcs(env, rows) {
     `UID:pnc-signup-${r.id}@volunteers`,
     `DTSTAMP:${stamp}`,
     `DTSTART:${fmt(localToUtc(r.date, r.start_time, tz))}`,
-    `DTEND:${fmt(localToUtc(r.date, r.end_time, tz))}`,
-    `SUMMARY:${icsEsc(`${r.event_title}: ${r.title}`)}`,
-    `LOCATION:${icsEsc(r.location)}`,
+    `DTEND:${fmt(r.kind === 'item' ? new Date(localToUtc(r.date, r.start_time, tz).getTime() + 30 * 60e3) : localToUtc(r.date, r.end_time, tz))}`,
+    `SUMMARY:${icsEsc(r.kind === 'item' ? `${r.event_title}: drop off ${r.item_desc}` : `${r.event_title}: ${r.title}`)}`,
+    `LOCATION:${icsEsc(r.kind === 'item' && r.dropoff_note ? r.dropoff_note : r.location)}`,
     `DESCRIPTION:${icsEsc(r.details)}`,
     'END:VEVENT',
   ].join('\r\n'));
@@ -650,6 +695,17 @@ function validatePerson(body) {
   const comments = opt(body.comments, 1000);
   return { first_name, last_name, email, mobile, comments };
 }
+
+const DIETARY = { veg: 'Vegetarian', vegan: 'Vegan', gf: 'Gluten free', nf: 'Nut free', df: 'Dairy free' };
+function validateItem(info, itemTitle) {
+  const item_desc = String(info?.item_desc ?? '').trim();
+  if (!item_desc) throw httpError(400, `Please say what you'll bring for "${itemTitle}".`);
+  if (item_desc.length > 120) throw httpError(400, `The description for "${itemTitle}" is too long.`);
+  const codes = (Array.isArray(info?.dietary) ? info.dietary : String(info?.dietary || '').split(','))
+    .map(c => String(c).trim()).filter(c => DIETARY[c]);
+  return { item_desc, dietary: [...new Set(codes)].join(',') };
+}
+function dietaryList(codes) { return String(codes || '').split(',').filter(c => DIETARY[c]).map(c => DIETARY[c]); }
 
 function req(v, label, max) {
   const s = String(v ?? '').trim();
