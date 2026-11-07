@@ -122,6 +122,8 @@ For a big event (say 80 volunteers) reminders may arrive a few hours late. To re
 
 **See who's coming:** the **Volunteers** tab shows each slot with names, mobiles and emails. **Export CSV** opens in Excel.
 
+**Sign-in sheet:** **Print sign-in sheet** opens a printable A4 page with the logo and event name, one row per volunteer (sorted by surname) showing their time slots or what they are bringing, a blank sign-in column, and a few spare rows for walk-ins.
+
 **Add or remove someone:** Volunteers tab > **+ Add volunteer** (can over-fill a slot), or **Remove** next to their name.
 
 **Email everyone:** **Email volunteers**, choose everyone or one slot, write the message. Replies go to the event's contact email.

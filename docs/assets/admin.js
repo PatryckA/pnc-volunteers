@@ -133,6 +133,7 @@
         <a class="btn secondary small" href="event.html?id=${ev.id}" target="_blank" rel="noopener">Preview</a>
         <button class="btn secondary small" id="dup">Duplicate</button>
         <button class="btn secondary small" id="csv">Export CSV</button>
+        <button class="btn secondary small" id="print">Print sign-in sheet</button>
         <button class="btn secondary small" id="mail">Email volunteers</button>
         <span class="spacer"></span>
         <button class="btn danger small" id="del">Delete event</button>
@@ -153,6 +154,7 @@
       $('#copylink').onclick = () => copyLink(ev.id);
       $('#dup').onclick = () => duplicateModal(ev);
       $('#csv').onclick = () => exportCsv(ev);
+      $('#print').onclick = () => printSignIn(ev);
       $('#mail').onclick = () => emailModal(ev);
       $('#del').onclick = () => deleteModal(ev);
     }
@@ -479,6 +481,61 @@
         catch (err) { toast(err.message, 'bad'); }
       };
     });
+  }
+
+  function printSignIn(ev) {
+    // One row per volunteer (matched by email), listing every slot or item they signed up for
+    const people = new Map();
+    for (const s of ev.slots) {
+      for (const g of s.signups) {
+        const key = g.email.toLowerCase();
+        if (!people.has(key)) people.set(key, { first: g.first_name, last: g.last_name, entries: [] });
+        people.get(key).entries.push({ s, g });
+      }
+    }
+    const rows = [...people.values()].sort((a, b) => (a.last + ' ' + a.first).localeCompare(b.last + ' ' + b.first, 'en', { sensitivity: 'base' }));
+    const dates = [...new Set(ev.slots.map(s => s.date))].sort();
+    const describe = ({ s, g }) => s.kind === 'item'
+      ? `Bringing: ${esc(g.item_desc)} <span class="sub">(${esc(s.title)})</span>`
+      : `${fmtTime(s.start_time)} to ${fmtTime(s.end_time)} <span class="sub">${esc(s.title)}${dates.length > 1 ? ', ' + esc(fmtDateShort(s.date)) : ''}</span>`;
+    const logo = PNC_CONFIG.logo ? new URL(PNC_CONFIG.logo, location.href).href : '';
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Sign-in sheet: ${esc(ev.title)}</title>
+      <style>
+        @page { size: A4 portrait; margin: 14mm; }
+        body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #111; margin: 0; }
+        header { display: flex; align-items: center; gap: 16px; border-bottom: 2px solid #111; padding-bottom: 10px; margin-bottom: 14px; }
+        header img { height: 64px; width: auto; }
+        h1 { font-size: 22px; margin: 0; }
+        .meta { font-size: 13px; color: #444; margin-top: 2px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { text-align: left; border-bottom: 2px solid #111; padding: 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+        td { border-bottom: 1px solid #999; padding: 8px 6px; vertical-align: top; }
+        tr { page-break-inside: avoid; }
+        td.name { width: 30%; font-weight: 600; }
+        td.sign { width: 24%; }
+        .slot + .slot { margin-top: 3px; }
+        .sub { color: #555; }
+        .empty td { height: 26px; }
+        .noprint { margin: 12px 0; font-size: 14px; }
+        @media print { .noprint { display: none; } }
+      </style></head><body>
+      <div class="noprint"><button onclick="print()">Print</button> ${rows.length} volunteer${rows.length === 1 ? '' : 's'}</div>
+      <header>
+        ${logo ? `<img src="${esc(logo)}" alt="">` : ''}
+        <div><h1>${esc(ev.title)}</h1>
+          <div class="meta">${esc(PNC_CONFIG.orgName || '')} · Volunteer sign-in${dates.length ? ' · ' + esc(fmtRange(dates[0], dates[dates.length - 1])) : ''}${ev.location ? ' · ' + esc(ev.location) : ''}</div></div>
+      </header>
+      <table><thead><tr><th>Volunteer name</th><th>Time slot(s)</th><th>Sign in</th></tr></thead><tbody>
+        ${rows.map(p => `<tr><td class="name">${esc(p.first)} ${esc(p.last)}</td>
+          <td>${p.entries.sort((a, b) => (a.s.date + a.s.start_time).localeCompare(b.s.date + b.s.start_time)).map(e => `<div class="slot">${describe(e)}</div>`).join('')}</td>
+          <td class="sign"></td></tr>`).join('')}
+        ${'<tr class="empty"><td></td><td></td><td></td></tr>'.repeat(5)}
+      </tbody></table>
+      <script>window.onload = () => setTimeout(() => print(), 300);<\/script>
+      </body></html>`;
+    const w = window.open('', '_blank');
+    if (!w) { toast('Please allow pop-ups for this site to print.', 'bad'); return; }
+    w.document.open(); w.document.write(html); w.document.close();
   }
 
   async function exportCsv(ev) {
