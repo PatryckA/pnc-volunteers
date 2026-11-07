@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Volunteer sign-up</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/config.js"></script>
+  <script src="assets/common.js"></script>
+</head>
+<body>
+  <header id="site-header"></header>
+  <main class="wrap">
+    <h1>Volunteer sign-up</h1>
+    <p class="lead" id="tagline"></p>
+    <div id="events" class="stack"><div class="spinner"></div></div>
+  </main>
+  <script>
+    document.title = `Volunteer sign-up | ${PNC_CONFIG.orgName}`;
+    $('#tagline').textContent = PNC_CONFIG.tagline || '';
+
+    (async () => {
+      const box = $('#events');
+      try {
+        const { events } = await api('/api/events');
+        if (!events.length) {
+          box.innerHTML = `<div class="card center"><p><strong>No events need volunteers right now.</strong></p><p class="muted">Check back soon, and thank you for offering to help!</p></div>`;
+          return;
+        }
+        box.innerHTML = events.map(e => `
+          <a class="card event-card" href="event.html?id=${e.id}">
+            <h3>${esc(e.title)}</h3>
+            <div class="meta">${esc(fmtRange(e.first_date, e.last_date))}${e.location ? ' · ' + esc(e.location) : ''}</div>
+            <div style="margin-top:8px">${e.open > 0
+              ? `<span class="badge">${e.open} spot${e.open === 1 ? '' : 's'} open</span>`
+              : `<span class="badge full">All filled, thank you!</span>`}</div>
+          </a>`).join('');
+      } catch (err) {
+        box.innerHTML = `<div class="error">${esc(err.message)}</div>`;
+      }
+    })();
+  </script>
+</body>
+</html>

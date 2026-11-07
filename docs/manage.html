@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex">
+  <title>My sign-up</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/config.js"></script>
+  <script src="assets/common.js"></script>
+</head>
+<body>
+  <header id="site-header"></header>
+  <main class="wrap">
+    <div id="content"><div class="spinner"></div></div>
+  </main>
+  <script>
+    const token = new URLSearchParams(location.search).get('t') || '';
+
+    async function load() {
+      const box = $('#content');
+      try {
+        const data = await api('/api/manage/' + encodeURIComponent(token));
+        box.innerHTML = `
+          <h1>Hi ${esc(data.first_name)}</h1>
+          <p class="lead">Here's what you're signed up for. Plans changed? Cancel a slot so someone else can take it.</p>
+          <div class="stack">${data.signups.map(s => `
+            <div class="card">
+              <div class="muted small">${esc(s.event_title)}${s.location ? ' · ' + esc(s.location) : ''}</div>
+              <div class="time" style="font-weight:700">${esc(fmtDate(s.date))}, ${fmtTime(s.start_time)} to ${fmtTime(s.end_time)}</div>
+              <div style="font-weight:600;font-size:17px">${esc(s.title)}</div>
+              ${s.details ? `<div class="muted small">${nl2br(s.details)}</div>` : ''}
+              <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+                ${s.can_cancel ? `<button class="btn danger small" data-cancel="${s.id}">Cancel this slot</button>` : '<span class="small muted">This slot has started.</span>'}
+                <a class="btn secondary small" href="event.html?id=${s.event_id}">See the event</a>
+              </div>
+            </div>`).join('')}
+          </div>`;
+        $$('[data-cancel]').forEach(b => b.addEventListener('click', () => cancel(b)));
+      } catch (err) {
+        box.innerHTML = `<h1>My sign-up</h1><div class="notice">${esc(err.message)}</div><p><a class="btn" href="index.html">See all events</a></p>`;
+      }
+    }
+
+    async function cancel(btn) {
+      // two-tap confirm, avoids browser pop-ups
+      if (!btn.classList.contains('confirm')) {
+        btn.classList.add('confirm');
+        btn.textContent = 'Tap again to confirm';
+        setTimeout(() => { btn.classList.remove('confirm'); btn.textContent = 'Cancel this slot'; }, 4000);
+        return;
+      }
+      btn.disabled = true;
+      try {
+        await api(`/api/manage/${encodeURIComponent(token)}/${btn.dataset.cancel}`, { method: 'DELETE' });
+        toast('Cancelled. Thanks for letting us know.');
+        load();
+      } catch (err) {
+        toast(err.message, 'bad');
+        btn.disabled = false;
+      }
+    }
+    load();
+  </script>
+</body>
+</html>
